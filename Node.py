@@ -1,5 +1,7 @@
 import hashlib
 import json
+import random
+import sys
 from time import time
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -15,7 +17,7 @@ class Node:
         self.chain = []
         self.peers = set()
 
-    def join_network(self, address):
+    def register_peer(self, address):
 
         url = urlparse(address)
         self.peers.add(url.netloc)
@@ -31,7 +33,7 @@ class Node:
             if block['previous_hash'] != self.hash(last_block):
                 return False
 
-            if not self.valid_proof(last_block['proof'], block['proof']):
+            if not self.valid_proof(block):
                 return False
 
             last_block = block
@@ -52,7 +54,6 @@ class Node:
 
         self.transactions = []
 
-        self.chain.append(block)
         return block
 
     def new_transaction(self, sender, data):
@@ -74,17 +75,102 @@ class Node:
         block_string = json.dumps(block, sort_keys=True).encode()
         return hashlib.sha256(block_string).hexdigest()
 
-    def proof_of_work(self, last_proof):
+    def proof_of_work(self):
 
-        proof = 0
-        while self.valid_proof(last_proof, proof) is False:
-            proof += 1
+        proof = random.randint(0, sys.maxsize)
+        new_block = self.new_block(proof, hashlib.sha256(self.last_block).hexdigest())
+        while self.valid_proof(new_block) is False:
+            new_block['proof'] += 1
 
         return proof
 
     @staticmethod
-    def valid_proof(last_proof, proof):
+    def valid_proof(block):
 
-        guess = f'{last_proof}{proof}'.encode()
-        guess_hash = hashlib.sha256(guess).hexdigest()
+        guess_hash = hashlib.sha256(block).hexdigest()
         return guess_hash[:4] == difficulty
+
+    def resolve_conflicts(self):
+
+        new_chain = None
+        max_length = len(self.chain)
+
+        for node in self.peers:
+            response = requests.get(f'http://{node}/chain')
+
+            if response.status_code == 200:
+                length = response.json()['length']
+                chain = response.json()['chain']
+
+                if length > max_length and self.valid_chain(chain):
+                    max_length = length
+                    new_chain = chain
+
+        if new_chain:
+            self.chain = new_chain
+            return True
+
+        return False
+
+app = Flask(__name__)
+node_identifier = str(uuid4()).replace('-', '')
+client = Node()
+
+@app.route('/nodes/register', methods=['POST'])
+def register_nodes():
+
+    values = request.get_json()
+    nodes = values.get('nodes')
+
+    if nodes is None:
+        return "Error: Please supply valid list of nodes", 400
+
+    for node in nodes:
+        client.register_peer(node)
+
+    response = {
+        'message': 'New peers added',
+        'total_peers': list(client.peers)
+    }
+    return jsonify(response), 201
+
+@app.route('/nodes/resolve', methods=['GET'])
+def consensus():
+    replaced = client.resolve_conflicts()
+
+    if replaced:
+        response = {
+            'message': 'chain replaced',
+            'new_chain': client.chain
+        }
+    else:
+        response = {
+            'message': 'node chain is authoritative',
+            'chain': client.chain
+        }
+
+    return jsonify(response), 200
+
+@app.route('/transactions/new', methods=['POST'])
+def new_transaction():
+    values = request.get_json()
+
+    required_fields = ['sender', 'data']
+    if not all(k in values for k in required_fields):
+        return 'missing fields', 400
+
+    index = client.new_transaction(values['sender'], values['data'])
+
+    response = {'message': f'transaction will be added to block {index}'}
+    return jsonify(response), 201
+
+@app.route('/mine', methods=['GET'])
+def mine():
+    last_block = client.last_block
+    client.new_transaction(node_identifier, 'mined a block')
+
+
+
+
+
+
