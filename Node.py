@@ -77,12 +77,12 @@ class Node:
 
     def proof_of_work(self):
 
-        proof = random.randint(0, sys.maxsize)
+        proof = 0
         new_block = self.new_block(proof, hashlib.sha256(self.last_block).hexdigest())
         while self.valid_proof(new_block) is False:
             new_block['proof'] += 1
 
-        return proof
+        return new_block
 
     @staticmethod
     def valid_proof(block):
@@ -166,8 +166,15 @@ def new_transaction():
 
 @app.route('/mine', methods=['GET'])
 def mine():
-    last_block = client.last_block
     client.new_transaction(node_identifier, 'mined a block')
+    new_block = client.proof_of_work()
+    client.chain.append(new_block)
+
+    response = {
+        'message': 'new block forged',
+        'block': new_block
+    }
+    return jsonify(response), 201
 
 
 
