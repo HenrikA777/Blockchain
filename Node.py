@@ -18,6 +18,9 @@ class Node:
         self.chain = []
         self.peers = set()
 
+        self.chain.append(self.new_block(previous_hash='1', proof=100))
+
+
     def register_peer(self, address):
 
         url = urlparse(address)
@@ -43,14 +46,15 @@ class Node:
         return True
 
 
-    def new_block(self, proof, previous_hash):
-
+    def new_block(self, proof, previous_hash = None):
+        if previous_hash == None:
+            previous_hash = self.hash(self.chain[-1])
         block = {
             'index': len(self.chain) + 1,
             'timestamp': time(),
             'transactions': self.transactions,
             'proof': proof,
-            'previous_hash': previous_hash or self.hash(self.chain[-1])
+            'previous_hash': previous_hash
         }
 
         self.transactions = []
@@ -79,17 +83,28 @@ class Node:
     def proof_of_work(self):
 
         proof = 0
-        new_block = self.new_block(proof, hashlib.sha256(self.last_block).hexdigest())
+        last_block = self.last_block
+        new_block = self.new_block(proof)
         while self.valid_proof(new_block) is False:
+            if not last_block == self.last_block:
+                return None
             new_block['proof'] += 1
 
+        self.announce_block(new_block)
+        self.chain.append(new_block)
         return new_block
+
+    def announce_block(self, block):
+        for peer in self.peers:
+            url = f'http://{peer}/add_block'
+            requests.post(url, data=json.dumps(block, sort_keys=True))
+
 
     @staticmethod
     def valid_proof(block):
 
-        guess_hash = hashlib.sha256(block).hexdigest()
-        return guess_hash[:4] == Node.difficulty
+        guess_hash = Node.hash(block)
+        return guess_hash.startswith(Node.difficulty)
 
     def resolve_conflicts(self):
 
@@ -116,6 +131,11 @@ class Node:
 app = Flask(__name__)
 node_identifier = str(uuid4()).replace('-', '')
 client = Node()
+
+@app.route('/chain', methods=['GET'])
+def get_chain():
+    response = {'chain': client.chain}
+    return jsonify(response), 200
 
 @app.route('/nodes/register', methods=['POST'])
 def register_nodes():
@@ -169,13 +189,28 @@ def new_transaction():
 def mine():
     client.new_transaction(node_identifier, 'mined a block')
     new_block = client.proof_of_work()
-    client.chain.append(new_block)
-
-    response = {
-        'message': 'new block forged',
-        'block': new_block
-    }
+    if new_block is None:
+        response = {
+            'message': 'new block received from peer'
+        }
+    else:
+        response = {
+            'message': 'new block forged',
+            'block': new_block
+        }
     return jsonify(response), 201
+
+@app.route('/add_block', methods=['POST'])
+def validate_add_block():
+    block = request.get_json()
+
+    if not block['previous_hash'] == client.hash(client.last_block):
+        client.resolve_conflicts()
+        return 'previous has not valid, trying to resolve conflicts', 400
+    if client.valid_proof(block):
+        client.chain.append(block)
+        return 201
+
 
 if __name__ == '__main__':
     from argparse import ArgumentParser
