@@ -16,7 +16,7 @@ class Node:
     def __init__(self):
         self.transactions = []
         self.chain = []
-        self.peers = set()
+        self.peers = []
 
         self.chain.append(self.new_block(previous_hash='1', proof=100))
 
@@ -24,7 +24,7 @@ class Node:
     def register_peer(self, address):
 
         url = urlparse(address)
-        self.peers.add(url.netloc)
+        self.peers.append(url.netloc)
 
     def valid_chain(self, chain):
 
@@ -137,17 +137,27 @@ def get_chain():
     response = {'chain': client.chain}
     return jsonify(response), 200
 
+@app.route('/nodes', methods=['GET'])
+def get_nodes():
+    response = {'peers': client.peers}
+    return jsonify(response), 200
+
 @app.route('/nodes/register', methods=['POST'])
 def register_nodes():
 
-    values = request.get_json()
-    nodes = values.get('nodes')
+    values = request.data.decode('utf8').replace("'", '"').replace("\\", "")
+    data = json.loads(values)
+    arr = []
+    for a in data["nodes"]:
+        arr.append(a)
 
-    if nodes is None:
+
+    if data is None:
         return "Error: Please supply valid list of nodes", 400
 
-    for node in nodes:
-        client.register_peer(node)
+    for dat in arr:
+        print(dat)
+        client.peers.append(dat)
 
     response = {
         'message': 'New peers added',
@@ -211,6 +221,23 @@ def validate_add_block():
         client.chain.append(block)
         return 201
 
+@app.route('/start', methods=['GET'])
+def start():
+    ip = request.host.split(':')[0]
+    org_port = 5000
+    port = request.host.split(':')[1]
+    org_node = f'{ip}:{org_port}'
+    this_node = f'{ip}:{port}'
+    if not port == org_port:
+        client.peers.append(org_node)
+        url = f'http://{org_node}/nodes/register'
+        arr = []
+        arr.append(this_node)
+        message = {"nodes": arr}
+        print(message)
+        requests.post(url, data=json.dumps(message, sort_keys=True))
+    return jsonify(this_node), 200
+
 
 if __name__ == '__main__':
     from argparse import ArgumentParser
@@ -220,10 +247,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     port = args.port
 
+
+
+
     app.run(host='0.0.0.0', port=port)
-
-
-
-
-
 
