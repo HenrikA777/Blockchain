@@ -8,10 +8,11 @@ from uuid import uuid4
 
 import requests
 from flask import Flask, jsonify, request
-difficulty = '0000'
 
 
 class Node:
+    difficulty = '0000'
+
     def __init__(self):
         self.transactions = []
         self.chain = []
@@ -88,7 +89,7 @@ class Node:
     def valid_proof(block):
 
         guess_hash = hashlib.sha256(block).hexdigest()
-        return guess_hash[:4] == difficulty
+        return guess_hash[:4] == Node.difficulty
 
     def resolve_conflicts(self):
 
