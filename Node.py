@@ -212,13 +212,27 @@ def consensus():
 
 @app.route('/transactions/new', methods=['POST'])
 def new_transaction():
-    values = request.get_json()
+    values = request.get_json(force=True)
 
     required_fields = ['sender', 'data']
     if not all(k in values for k in required_fields):
         return 'missing fields', 400
 
-    index = client.new_transaction(values['sender'], values['data'])
+    client.new_transaction(values['sender'], values['data'])
+    announce = True
+    for peer in client.peers:
+        if peer == request.remote_addr:
+            announce = False
+    if announce:
+        for peer in client.peers:
+            url = f'http://{peer}/transactions/new'
+            requests.post(url, data=json.dumps(values))
+
+    message = f'Transaction added. Transaction broadcast? {announce}'
+    print(message)
+    return message, 201
+
+
 
     response = {'message': f'transaction will be added to block {index}'}
     return jsonify(response), 201
