@@ -70,6 +70,24 @@ class Node:
 
         return self.last_block['index'] + 1
 
+    def add_peer(self, node):
+        duplicate = True
+        announce = False
+        if not node == request.host:
+            duplicate = False
+            for peer in self.peers:
+                if node == peer:
+                    duplicate = True
+        if not duplicate:
+            self.peers.append(node)
+            announce = True
+
+        if len(self.peers) < 1:
+            if not node == request.host:
+                self.peers.append(node)
+                announce = True
+        return announce
+
     @property
     def last_block(self):
         return self.chain[-1]
@@ -90,14 +108,15 @@ class Node:
                 return None
             new_block['proof'] += 1
 
-        self.announce_block(new_block)
+
         self.chain.append(new_block)
+        self.announce_block(new_block)
         return new_block
 
     def announce_block(self, block):
         for peer in self.peers:
             url = f'http://{peer}/add_block'
-            requests.post(url, data=json.dumps(block, sort_keys=True))
+            requests.post(url, data=json.dumps(block))
 
 
     @staticmethod
@@ -134,7 +153,8 @@ client = Node()
 
 @app.route('/chain', methods=['GET'])
 def get_chain():
-    response = {'chain': client.chain}
+    response = {'chain': client.chain,
+                'length': len(client.chain)}
     return jsonify(response), 200
 
 @app.route('/nodes', methods=['GET'])
@@ -152,12 +172,20 @@ def register_nodes():
         arr.append(a)
 
 
-    if data is None:
+    if len(arr) < 1:
         return "Error: Please supply valid list of nodes", 400
-
-    for dat in arr:
-        print(dat)
-        client.peers.append(dat)
+    announce = False
+    for node in arr:
+        print(node)
+        if client.add_peer(node):
+            announce = True
+    if announce:
+        if announce:
+            for peer in client.peers:
+                if not peer == request.remote_addr:
+                    message = {"nodes": client.peers}
+                    url = f'http://{peer}/nodes/register'
+                    requests.post(url, data=json.dumps(message, sort_keys=True))
 
     response = {
         'message': 'New peers added',
@@ -212,14 +240,15 @@ def mine():
 
 @app.route('/add_block', methods=['POST'])
 def validate_add_block():
-    block = request.get_json()
+    block = request.get_json(force=True)
+    print(block)
 
     if not block['previous_hash'] == client.hash(client.last_block):
         client.resolve_conflicts()
         return 'previous has not valid, trying to resolve conflicts', 400
     if client.valid_proof(block):
         client.chain.append(block)
-        return 201
+        return 'Block accepted', 201
 
 @app.route('/start', methods=['GET'])
 def start():
@@ -229,13 +258,18 @@ def start():
     org_node = f'{ip}:{org_port}'
     this_node = f'{ip}:{port}'
     if not port == org_port:
-        client.peers.append(org_node)
-        url = f'http://{org_node}/nodes/register'
+        client.add_peer(org_node)
+        url = f'http://{org_node}/nodes'
         arr = []
         arr.append(this_node)
         message = {"nodes": arr}
         print(message)
-        requests.post(url, data=json.dumps(message, sort_keys=True))
+        requests.post(url + '/register', data=json.dumps(message, sort_keys=True))
+        response = requests.get(url).json()
+        print(response)
+        for node in response['peers']:
+            print(node)
+            client.add_peer(node)
     return jsonify(this_node), 200
 
 
