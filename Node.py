@@ -143,6 +143,7 @@ class Node:
 
         if new_chain:
             self.chain = new_chain
+            self.transactions.clear()
             return True
 
         return False
@@ -213,13 +214,17 @@ def consensus():
 @app.route('/transactions/new', methods=['POST'])
 def new_transaction():
     values = request.get_json(force=True)
+    if not len(client.transactions) < 1:
+        if values['sender'] == client.transactions[-1]['sender'] and values['data'] == client.transactions[-1]['data']:
+            message = 'Duplicate message'
+            print(message)
+            return message, 400
 
-    required_fields = ['sender', 'data']
-    if not all(k in values for k in required_fields):
-        return 'missing fields', 400
 
     client.new_transaction(values['sender'], values['data'])
     announce = True
+    print(request.remote_addr)
+    #Not working when running on same host
     for peer in client.peers:
         if peer == request.remote_addr:
             announce = False
@@ -256,12 +261,14 @@ def mine():
 def validate_add_block():
     block = request.get_json(force=True)
     print(block)
+    print(request.remote_addr)
 
     if not block['previous_hash'] == client.hash(client.last_block):
         client.resolve_conflicts()
         return 'previous has not valid, trying to resolve conflicts', 400
     if client.valid_proof(block):
         client.chain.append(block)
+        client.transactions.clear()
         return 'Block accepted', 201
 
 @app.route('/start', methods=['GET'])
