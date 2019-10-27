@@ -290,6 +290,7 @@ def start():
         for node in response['peers']:
             print(node)
             client.add_peer(node)
+        client.resolve_conflicts()
     return jsonify(this_node), 200
 
 
