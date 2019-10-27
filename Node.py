@@ -181,12 +181,11 @@ def register_nodes():
         if client.add_peer(node):
             announce = True
     if announce:
-        if announce:
-            for peer in client.peers:
-                if not peer == request.remote_addr:
-                    message = {"nodes": client.peers}
-                    url = f'http://{peer}/nodes/register'
-                    requests.post(url, data=json.dumps(message, sort_keys=True))
+        for peer in client.peers:
+            if not peer == request.remote_addr:
+                message = {"nodes": client.peers}
+                url = f'http://{peer}/nodes/register'
+                requests.post(url, data=json.dumps(message, sort_keys=True))
 
     response = {
         'message': 'New peers added',
